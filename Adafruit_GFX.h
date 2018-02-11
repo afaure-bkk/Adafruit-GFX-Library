@@ -9,6 +9,17 @@
 #endif
 #include "gfxfont.h"
 
+// afaure: constants for binary mode
+// Character dsiplay
+#define BM_TEXT 0 // everything as regular text
+#define BM_MIXT 1 // non printable as binary, others as text
+#define BM_BIN  2 // all as binary
+
+// endline display
+#define CR_NORMAL 0   // Normal behavior : \n = next line, \r is not displayed
+#define CR_MIXT   1   // Display the character and go to next line just after. Display \r.
+#define CR_DISP   2   // Print \n, do not go to the next line
+
 class Adafruit_GFX : public Print {
 
  public:
@@ -99,6 +110,9 @@ class Adafruit_GFX : public Print {
     setTextColor(uint16_t c, uint16_t bg),
     setTextSize(uint8_t s),
     setTextWrap(boolean w),
+    setTextScrollMode(boolean b),
+    setBinaryMode( uint8_t binaryMode ),
+    setCRMode( uint8_t crMode ),
     cp437(boolean x=true),
     setFont(const GFXfont *f = NULL),
     getTextBounds(char *string, int16_t x, int16_t y,
@@ -111,6 +125,19 @@ class Adafruit_GFX : public Print {
 #else
   virtual void   write(uint8_t);
 #endif
+
+  // afaure: print fixed size string (do not stop at 0x00)
+  void printlen( const uint8_t* str, uint8_t len ); 
+
+  // afaure: scroll up when reaching bottom of display. Ideally should be pure virtual.
+  virtual void scroll( uint8_t iLines ) {};
+  void textScroll();
+
+  // afaure: when drawing in fixed font, either
+  // - read the byte from the font directly (normal mode, or printable characters)
+  // - build the line to draw tiny hexa number with the character code (binary mode,
+  //   or mixt mode for non printable characters)
+  uint8_t buildLine( unsigned char c, int8_t lineIndex ) const;
 
   int16_t height(void) const;
   int16_t width(void) const;
@@ -134,10 +161,13 @@ class Adafruit_GFX : public Print {
     textcolor, textbgcolor;
   uint8_t
     textsize,
-    rotation;
+    rotation,
+    binarymode,   // afaure : define how non printable characters are drawn in satandard font
+    crmode;       // afaure : define how \n and \r are displayed
   boolean
     wrap,   // If set, 'wrap' text at right edge of display
-    _cp437; // If set, use correct CP437 charset (default is off)
+    _cp437, // If set, use correct CP437 charset (default is off)
+    scrollmode;   // afaure : if set to true, scroll up when wrtiing beoynd the las line of text
   GFXfont
     *gfxFont;
 };

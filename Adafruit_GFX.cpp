@@ -82,6 +82,9 @@ WIDTH(w), HEIGHT(h)
     wrap      = true;
     _cp437    = false;
     gfxFont   = NULL;
+    binarymode= BM_TEXT;    // afaure : by default, use the normal font.
+    crmode    = CR_NORMAL;  // afaure : go to the next line on printing \n
+    scrollmode= false;      // afaure : by default, do not scroll up text upon reaching botom of screen
 }
 
 // Bresenham's algorithm - thx wikpedia
@@ -706,6 +709,37 @@ void Adafruit_GFX::drawRGBBitmap(int16_t x, int16_t y,
 
 // TEXT- AND CHARACTER-HANDLING FUNCTIONS ----------------------------------
 
+// afaure: Get the pixel line from a character based on the binary display mode
+uint8_t Adafruit_GFX::buildLine( unsigned char c, int8_t lineIndex ) const {
+  uint8_t line = 0;
+  if( binarymode == BM_TEXT ||
+      ( binarymode == BM_MIXT && ( c > 31 && c < 127  /*select the printable characters*/) ) ) {
+    if(lineIndex < 5) {
+      line = pgm_read_byte( font + (c * 5) + lineIndex );
+    }
+  }
+  // Do not use the font in that case : compute glyphe dynamically
+  else {
+    if( lineIndex < 5 ) {
+      //get the top byte (LSB)
+      line = pgm_read_byte( tiny_hex_char + ( c & 0x0F ) * 5 + lineIndex );
+
+      //get the bottom bye (MSB), shift it, and or it to line
+      line |= pgm_read_byte( tiny_hex_char + ( c >> 4 ) * 5 + lineIndex ) << 4;
+    }
+  }
+
+  return line;
+}
+
+// afaure: scrolls display up by 8 pixels (size of default font + vertical spacing),
+// reset cursor position to beginning of line
+// TODO: take into account rotation
+void Adafruit_GFX::textScroll() {
+  scroll(8);
+  cursor_y = 56;
+}
+
 // Draw a character
 void Adafruit_GFX::drawChar(int16_t x, int16_t y, unsigned char c,
   uint16_t color, uint16_t bg, uint8_t size) {
@@ -722,7 +756,7 @@ void Adafruit_GFX::drawChar(int16_t x, int16_t y, unsigned char c,
 
         startWrite();
         for(int8_t i=0; i<5; i++ ) { // Char bitmap = 5 columns
-            uint8_t line = pgm_read_byte(&font[c * 5 + i]);
+            uint8_t line = buildLine(c, i); // afaure: get the line from the font, or build dynamically
             for(int8_t j=0; j<8; j++, line >>= 1) {
                 if(line & 1) {
                     if(size == 1)
@@ -806,6 +840,15 @@ void Adafruit_GFX::drawChar(int16_t x, int16_t y, unsigned char c,
     } // End classic vs custom font
 }
 
+// afaure : display a fixed length (even if contains 0x00)
+void Adafruit_GFX::printlen( const uint8_t* str, uint8_t len ) {
+  // Print everything blindly
+  for( ; len > 0; len-- ) {
+    write( *str );
+    str++;
+  }
+}
+
 #if ARDUINO >= 100
 size_t Adafruit_GFX::write(uint8_t c) {
 #else
@@ -813,16 +856,27 @@ void Adafruit_GFX::write(uint8_t c) {
 #endif
     if(!gfxFont) { // 'Classic' built-in font
 
-        if(c == '\n') {                        // Newline?
-            cursor_x  = 0;                     // Reset x to zero,
-            cursor_y += textsize * 8;          // advance y one line
-        } else if(c != '\r') {                 // Ignore carriage returns
-            if(wrap && ((cursor_x + textsize * 6) > _width)) { // Off right?
+        // afaure: in NORMAL mode, do not display cr or lf
+        if((c != '\r' && c!= '\n') || crmode != CR_NORMAL) {
+            if(wrap && ((cursor_x + textsize * 6) > _width)) {
                 cursor_x  = 0;                 // Reset x to zero,
                 cursor_y += textsize * 8;      // advance y one line
+                if(cursor_y > _height - 8 && scrollmode) {
+                    textScroll();
+                }
+
             }
             drawChar(cursor_x, cursor_y, c, textcolor, textbgcolor, textsize);
             cursor_x += textsize * 6;          // Advance x one char
+        }
+
+        // afaure: Handle \n when we should go to the next line (NORMAL and MIXT mode)
+        if( c == '\n' && crmode != CR_DISP ) {
+            cursor_x  = 0;
+            cursor_y += textsize*8;
+            if(cursor_y > _height - 8) {
+                textScroll();
+            }
         }
 
     } else { // Custom font
@@ -889,6 +943,11 @@ void Adafruit_GFX::setTextWrap(boolean w) {
     wrap = w;
 }
 
+// afaure
+void Adafruit_GFX::setTextScrollMode(boolean b) {
+    scrollmode = b;
+}
+
 uint8_t Adafruit_GFX::getRotation(void) const {
     return rotation;
 }
@@ -933,6 +992,16 @@ void Adafruit_GFX::setFont(const GFXfont *f) {
         cursor_y -= 6;
     }
     gfxFont = (GFXfont *)f;
+}
+
+// afaure: set the display mode for non printable charaters (default font only)
+void Adafruit_GFX::setBinaryMode( uint8_t binaryMode ) {
+  binarymode = binaryMode;
+}
+
+// afaure: set the carriage return display mode (default font only)
+void Adafruit_GFX::setCRMode( uint8_t crMode ) {
+  crmode = crMode;
 }
 
 // Broke this out as it's used by both the PROGMEM- and RAM-resident
